@@ -1,4 +1,4 @@
-SET fh="C:\Documents and Settings\user\Œ®¨ ¤®ªã¬¥­âë\Arduino\sketch_feb11b\prog.h"
+SET fh="C:\Documents and Settings\user\ÐœÐ¾Ð¸ Ð´Ð¾ÐºÑƒÐ¼ÐµÐ½Ñ‚Ñ‹\Arduino\at89c2051\prog.h"
 SET fhex=temp.hex
 
 hex2bin %fhex%

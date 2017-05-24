@@ -3,7 +3,6 @@
 #include <avr/pgmspace.h>
 #include "prog.h"
 
-
 #define pinP1_0  5                              
 #define pinP1_1  6                              
 #define pinP1_2  7                              
@@ -17,7 +16,6 @@
 #define pinRST   3
 #define pinPROG  2
 
-
 #define pinP3_3   14 /*A0*/
 #define pinP3_4   15 /*A1*/
 #define pinP3_5   16 /*A2*/
@@ -25,7 +23,6 @@
 #define pin12v    18 /*A4*/
 
 const uint8_t pinsP1[]={pinP1_0,pinP1_1,pinP1_2,pinP1_3,pinP1_4,pinP1_5,pinP1_6,pinP1_7};
-
 
 /*const uint8_t my_prog[] PROGMEM={
   };
@@ -51,35 +48,42 @@ void setup() {
   Serial.begin(9600);
 }
 //-------------------------------------------
-// 
-inline void set3457(uint8_t v33,uint8_t v34,uint8_t v35,uint8_t v37){
+// If rst was up or 12v then togle rst
+// Set P1 to input or ouput, if ouput then set 12v, if iput up rst
+// Set p3_3,p3_4,p3_5,p3_6.
+bool set3457modeP1(uint8_t v33,uint8_t v34,uint8_t v35,uint8_t v37,uint8_t io){
+  if (digitalRead(pin12v)==HIGH) {digitalWrite(pinRST,LOW); delay(10);}
+  if (digitalRead(pinRST)==HIGH) {digitalWrite(pinRST,LOW); delay(1);}
+
+  setModeP1(io);
+  
   digitalWrite(pinP3_3, v33);
   digitalWrite(pinP3_4, v34);
   digitalWrite(pinP3_5, v35);
   digitalWrite(pinP3_7, v37);
+
+  if (io==OUTPUT) return start12v();
+
+  digitalWrite(pinRST,HIGH);
+  delay(1);
+  return true;
 }
 //-------------------------------------------
-// процесс записывания
+// Clear rst
+inline void clsRST(){
+  digitalWrite(pinRST,LOW);
+}
+
+//-------------------------------------------
+// Process of execute commands
 void pulsePROG(uint8_t t=1){
   digitalWrite(pinPROG, LOW);
   delay(t);
   digitalWrite(pinPROG, HIGH);
 }
-//-------------------------------------------
-// установка сигнала RST когда не подведено 12в
-void setRST(uint8_t v){
-  digitalWrite(pinRST, v);
-//  switch (v){
-//    case LOW:     digitalWrite(pinRST,LOW); 
-//                  break;
-//    case HIGH:    /*digitalWrite(pinRST12,LOW);*/
-//                  digitalWrite(pinRST,HIGH);
-//                  break;
-//  }
-}
 
 //-------------------------------------------
-// переходим на следующий адрес
+// Go to next address
 void nextAddress(){
   digitalWrite(pinXTAL1,HIGH);
   delay(1);
@@ -87,89 +91,96 @@ void nextAddress(){
   delay(1);
 }
 //-------------------------------------------
-// установка режима чтения или записи
-void setP1(uint8_t IO){
-  uint8_t i;
-  for (i=0;i<8;i++)
-    pinMode(pinsP1[i],IO);
+// Set mode for port p1 (input or output)
+void setModeP1(uint8_t io){
+  for (uint8_t i=0; i<8; i++)
+    pinMode(pinsP1[i],io);
 }
 //-------------------------------------------
-// считывание байта данный с порта P1
+// Read data from port p1
 uint8_t readP1(){
-  uint8_t d,i;
-  for (d=i=0;i<8;i++){
+  uint8_t d=0;
+  for (uint8_t i=0;i<8;i++){
     d<<=1;
     if (digitalRead(pinsP1[7-i])==HIGH) d|=1;
   }
   return d;  
 }
 //-------------------------------------------
-// установка байта данный на порт P1
+// Write data to port p1
 void writeP1(uint8_t d){
-  uint8_t i;
-  for (i=0;i<8;i++){
+  for (uint8_t i=0; i<8; i++){
     digitalWrite(pinsP1[i],(d&1)? HIGH:LOW);
     d>>=1;
   }
 }
 //-------------------------------------------
-uint8_t start12v(){
-  uint8_t s;
-/*  Serial.println("When put 12v, press 'c'");
-  while (Serial.available() == 0);
-
-  s=Serial.read();
-  if (s!='c')  {
-    Serial.println("Operation was canseled, remove 12 v");
-    return 0;
-  }
-  return 1;*/
+// Start connect 12v
+bool start12v(){
+  uint8_t symbol;
 
   Serial.println("For continue, press 'c'");
-  while (Serial.available() == 0);
-
-  s=Serial.read();
-  if (s!='c')  {
-    Serial.println("Operation was canseled, remove 12 v");
-    return 0;
+  
+  while (Serial.available() == 0)
+    ; //empty cycle
+  symbol=Serial.read();
+  if (symbol != 'c')  {
+    Serial.println("The operation was canseled");
+    return false;
   }
   digitalWrite(pin12v,HIGH);
-  delay(10);
-  return 1;
+  delay(1000); /*big delay for relay*/
+  return true;
 }  
 //-------------------------------------------
+// remove 12v
 void stop12v(){
-/*  Serial.println("\nRemove 12v");*/
+  Serial.println("\n12v was removed");
   digitalWrite(pin12v,LOW);
 }
+
 //-------------------------------------------
 void eraseChip(){
-  if (!start12v()) return;
 
-  set3457(HIGH,LOW,LOW,LOW);
+  if (!set3457modeP1(HIGH,LOW,LOW,LOW,OUTPUT)) return;
   pulsePROG(10);
   Serial.println("Erased");
 
   stop12v();
 }
+
+//-------------------------------------------
+void lockBit1(){
+
+  if (!set3457modeP1(HIGH,HIGH,HIGH,HIGH,OUTPUT)) return;
+  pulsePROG(1);
+  Serial.println("Bit 1 set");
+
+  stop12v();
+}
+//-------------------------------------------
+void lockBit2(){
+
+  if (!set3457modeP1(HIGH,HIGH,LOW,LOW,OUTPUT)) return;
+  pulsePROG(1);
+  Serial.println("Bit 2 set");
+
+  stop12v();
+}
+
 //-------------------------------------------
 void writeProg(){
-  uint16_t i;
-  uint8_t d;
-  set3457(LOW,HIGH,HIGH,HIGH);                      //согласно мануалу
-  setP1(OUTPUT);                                    //будем передавать данные
 
-  if (!start12v()) return;
-  
-  for (i=0; i<sizeof(my_prog); i++)  {
-    d=pgm_read_byte_near(my_prog+i);
+  if (!set3457modeP1(LOW,HIGH,HIGH,HIGH,OUTPUT)) return;
+      
+  for (uint16_t i=0; i<sizeof(my_prog); i++)  {
+    uint8_t d=pgm_read_byte_near(my_prog+i);
     Serial.print((int)d,HEX);
     Serial.print(" ,");
     writeP1(d);
     pulsePROG(1);
     delay(1);
     nextAddress();
-    delay(1);
   }
   Serial.println("");
 
@@ -177,17 +188,13 @@ void writeProg(){
 }
 
 //----------------------------------------------
-void readChip(uint16_t len){
-  uint16_t i,d;
+#define MAX_SIZE 2048
+void readChip(){
+
+  set3457modeP1(LOW,LOW,HIGH,HIGH,INPUT);
   
-  set3457(LOW,LOW,HIGH,HIGH);
-  
-  setRST(HIGH);
-  setP1(INPUT);
-  delay(1);
-  
-  for (i=0;i<len;i++)  {
-    d = readP1();
+  for (uint16_t i=0; i<MAX_SIZE; i++)  {
+    uint8_t d = readP1();
 
     Serial.print((int)d,HEX);
     Serial.print(" ,");
@@ -196,97 +203,94 @@ void readChip(uint16_t len){
   }
   Serial.println("");
 
-  setRST(LOW);
+  clsRST();
 }
 
 //-----------------------------------------------
 void readChipAndCompare(){
-  uint16_t i,d1,d2,len=sizeof(my_prog);
-  uint8_t flag=1;
-  set3457(LOW,LOW,HIGH,HIGH);
-  
-  setRST(HIGH);
-  setP1(INPUT);
-  delay(1);
-  
-  for (i=0;i<len;i++)  {
-    d1 = readP1();
-    d2 = pgm_read_byte_near(my_prog+i);
-    if (d1!=d2) flag=0;
+  bool ok=true;
+
+  set3457modeP1(LOW,LOW,HIGH,HIGH,INPUT);
+
+  for (uint16_t i=0; i<sizeof(my_prog); i++)  {
+    uint8_t d1 = readP1();
+    uint8_t d2 = pgm_read_byte_near(my_prog+i);
+    if (d1!=d2) ok=false;
 
     nextAddress();
   }
 
-  setRST(LOW);
+  clsRST();
 
-  if (flag) Serial.println("Compare Ok");
-  else      Serial.println("Compare BAD!!!!");
+  if (ok) Serial.println("Compare Ok  :)");
+  else    Serial.println("Compare BAD :(");
 }
 
 //------------------------------------------------
-void readSignature(uint16_t len){
-  uint16_t i,d;
-  
-  set3457(LOW,LOW,LOW,LOW);
-  
-  setRST(HIGH);
-  setP1(INPUT);
-  delay(1);
-  
-  for (i=0;i<len;i++)  {
-    d = readP1();
+void readSignature(){
+  const uint8_t SIGNATURE_AT89C2051[]={0x1E, 0x21};
+  bool at89c2051=true;
+
+  set3457modeP1(LOW,LOW,LOW,LOW,INPUT);  
+
+  for (uint16_t i=0; i<sizeof(SIGNATURE_AT89C2051); i++){
+    uint8_t d = readP1();
     Serial.print((int)d,HEX);
     Serial.print(" ,");
-
+    if (d!=SIGNATURE_AT89C2051[i]) at89c2051=false;
     nextAddress();
   }
 
-  setRST(LOW);
+  Serial.println("");
+  if (at89c2051) Serial.println("Signature is at89c2051");
+  else           Serial.println("D'nt know this signature");
+  
+  clsRST();
 }
 
 //--------------------------------------------------
-void loop() {
-  static uint8_t sm=1;
-  uint8_t s;
-  uint8_t d;
+typedef struct{
+  char letter;                  //Command's letter
+  void (*command)();            //Pointer to routines
+  char* description;            //Discrition for help
+}ar;
 
-  if(sm==1){
-    Serial.println("\ns-signature,\nr-read chip,\ne-erase chip,\nw-write prog,\nc-compare\n");
-    sm=0;
+const ar Commands[]={
+  {'c', &readChipAndCompare,  " - compare with my_prog"},
+  {'r', &readChip,            " - read memory from chip"},
+  {'s', &readSignature,       " - read signature from chip"},
+  {'e', &eraseChip,           " - erase chip"},
+  {'w', &writeProg,           " - write my_prog to chip"},
+  {'l', &lockBit1,            " - set lock bit 1"},
+  {'L', &lockBit2,            " - set lock bit 2"},
+};
+
+//--------------------------------------------------
+void loop() {
+  char    symbol;
+  uint8_t i;
+  bool    bad_command=true;
+
+  Serial.println("");
+  for (i=0; i<sizeof(Commands)/sizeof(ar); i++){
+      Serial.print(Commands[i].letter);
+      Serial.println(Commands[i].description);
   }
 
   while  (Serial.available() == 0)
-          ; 
+    ;  // empty sycle
 
-  s = Serial.read();   // read the incoming byte:
+  symbol = Serial.read();   // read the incoming byte:
+  Serial.print("Typed: ");    Serial.println(symbol);
 
-  Serial.print("I received: ");    Serial.println((char)s);
-
-  switch (s){
-  case 'c':       //compare with my_prog
-        readChipAndCompare();
-        break;
-  case 'w':       //write my_prog
-        writeProg();
-        break;
-  case 's':       //read signature
-        readSignature(16);
-        break;
-  case 'r':       //read memory
-        readChip(2048);
-        break;
-  case 'e':       //erase memory
-        eraseChip();
-
-        break;
-  case '\n':      //ignore
-  case '\r': break;
-  default:
-        Serial.println("Bad command");
+  for (i=0; i<sizeof(Commands)/sizeof(ar); i++){
+    if (Commands[i].letter==symbol){
+      Commands[i].command();
+      bad_command=false;
+    }
   }
-  set3457(LOW,LOW,LOW,LOW);
-  sm=1;
 
-
+  if (bad_command) {
+    Serial.println("Bad command");
+  }
 }
-
